@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MEB Okul Öncesi Ek-2 Anekdot Asistanı</title>
+  
+  <!-- Mobil & PWA Ayarları -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#2563eb">
+
+  <!-- Harici Kütüphaneler (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- Dinamik Tek Parça PWA Manifest Entegrasyonu -->
+  <script>
+    const manifestJson = {
+      "short_name": "AnekdotEk2",
+      "name": "MEB Okul Öncesi Anekdot Kayıt Formu (Ek-2)",
+      "start_url": "./",
+      "display": "standalone",
+      "background_color": "#ffffff",
+      "theme_color": "#2563eb",
+      "icons": [{
+        "src": "https://cdn-icons-png.flaticon.com/512/3845/3845868.png",
+        "type": "image/png",
+        "sizes": "512x512"
+      }]
+    };
+    const stringManifest = JSON.stringify(manifestJson);
+    const blobManifest = new Blob([stringManifest], {type: 'application/json'});
+    const manifestURL = URL.createObjectURL(blobManifest);
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = manifestURL;
+    document.head.appendChild(link);
+  </script>
+
+  <style>
+    body { -webkit-tap-highlight-color: transparent; }
+    .pulse-animation { animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans pb-20 select-none">
+
+<div id="app" class="max-w-md mx-auto min-h-screen bg-white shadow-xl flex flex-col">
+
+  <!-- PIN KİLİT MODALI (KVKK ÖĞRENCİ GİZLİLİĞİ) -->
+  <div v-if="pinLocked" class="fixed inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center p-6 text-white">
+    <i class="fa-solid fa-user-shield text-5xl mb-4 text-blue-500"></i>
+    <h2 class="text-xl font-bold mb-2">Öğrenci Bilgi Kilidi</h2>
+    <p class="text-xs text-slate-400 mb-6 text-center">Gözlem kayıtlarına erişmek için 4 haneli PIN kodunuzu girin</p>
+    <div class="flex gap-3 mb-6">
+      <input type="password" maxlength="4" v-model="enteredPin" @keyup.enter="unlockApp"
+             class="w-40 text-center tracking-widest text-2xl py-2 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500">
+    </div>
+    <button @click="unlockApp" class="w-40 bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-semibold shadow-lg transition">Giriş Yap</button>
+  </div>
+
+  <!-- ÜST HEADER -->
+  <header class="bg-blue-600 text-white p-4 sticky top-0 z-30 shadow flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <i class="fa-solid fa-shapes text-xl text-yellow-300"></i>
+      <div>
+        <h1 class="text-base font-bold leading-none">Anekdot Ek-2 Asistanı</h1>
+        <span class="text-[10px] text-blue-200">MEB Maarif Modeli Standart</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button @click="shareBackup" title="WhatsApp/Drive ile Yedekle" class="p-2 bg-blue-700 rounded-lg text-xs hover:bg-blue-800 transition">
+        <i class="fa-solid fa-cloud-arrow-up"></i>
+      </button>
+      <button @click="activeTab = 'settings'" class="p-2 bg-blue-700 rounded-lg text-xs hover:bg-blue-800 transition">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ANA İÇERİK ALANI -->
+  <main class="flex-1 p-4 overflow-y-auto">
+
+    <!-- SEKME 1: YENİ ANEKDOT KAYDI -->
+    <section v-if="activeTab === 'new'" class="space-y-4">
+      
+      <!-- Çoklu Öğrenci Seçimi -->
+      <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <div class="flex justify-between items-center mb-2">
+          <label class="text-xs font-bold text-slate-600 uppercase flex items-center gap-1">
+            <i class="fa-solid fa-children text-blue-600"></i> Gözlenen Öğrenciler (Çoklu Seçilebilir)
+          </label>
+          <span class="text-[10px] font-semibold text-blue-600">{{ selectedStudentIds.length }} Seçildi</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
+          <button v-for="s in students" :key="s.id" @click="toggleStudentSelection(s.id)"
+                  :class="selectedStudentIds.includes(s.id) ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200'"
+                  class="text-xs px-2.5 py-1 rounded-full border transition flex items-center gap-1">
+            <span>{{ s.adSoyad }}</span>
+            <span class="text-[9px] opacity-75">({{ calculateMonths(s.dogumTarihi) }} Ay)</span>
+          </button>
+          <span v-if="students.length === 0" class="text-xs text-slate-400 italic">Henüz öğrenci eklenmemiş. "Öğrenciler" sekmesinden liste ekleyin.</span>
+        </div>
+      </div>
+
+      <!-- Mekân ve Ortam Seçim Çipleri -->
+      <div>
+        <label class="text-xs font-bold text-slate-600 uppercase mb-1.5 block">Ortam / Öğrenme Merkezi</label>
+        <div class="flex flex-wrap gap-1.5">
+          <button v-for="m in mekanlar" :key="m" @click="currentAnekdot.mekan = m"
+                  :class="currentAnekdot.mekan === m ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'"
+                  class="text-xs px-2.5 py-1 rounded-lg border border-slate-200 font-medium transition">
+            {{ m }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Gelişim Alanı Çipleri -->
+      <div>
+        <label class="text-xs font-bold text-slate-600 uppercase mb-1.5 block">İlgili Gelişim Alanı</label>
+        <div class="flex flex-wrap gap-1.5">
+          <button v-for="g in gelisimAlanlari" :key="g" @click="currentAnekdot.gelisimAlani = g"
+                  :class="currentAnekdot.gelisimAlani === g ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'"
+                  class="text-xs px-2.5 py-1 rounded-lg border border-slate-200 font-medium transition">
+            {{ g }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Olayın Betimlenmesi (Sesli Dikte ve Metin) -->
+      <div class="space-y-1">
+        <div class="flex justify-between items-center">
+          <label class="text-xs font-bold text-slate-600 uppercase">Olayın Betimlenmesi (Nesnel)</label>
+          <button @click="startVoiceRecognition('olay')" 
+                  :class="isListeningOlay ? 'bg-red-500 text-white pulse-animation' : 'bg-slate-100 text-slate-600 border border-slate-300'"
+                  class="px-2 py-1 rounded-md text-xs flex items-center gap-1 transition">
+            <i class="fa-solid fa-microphone"></i>
+            <span>{{ isListeningOlay ? 'Dinleniyor...' : 'Sesle Not Al' }}</span>
+          </button>
+        </div>
+        <textarea v-model="currentAnekdot.durum" rows="3" placeholder="Örn: Blok köşesinde Ali kule yaparken Ahmet elindeki oyuncağı aldı..." 
+                  class="w-full text-xs p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed"></textarea>
+      </div>
+
+      <!-- Kurumsal Dil Düzeltmesi & Geri Alma Barı -->
+      <div class="flex items-center justify-between p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles text-amber-600"></i>
+          <span class="font-medium text-amber-900">MEB Pedagojik Dil Dönüştürücü</span>
+        </div>
+        <div class="flex gap-1.5">
+          <button v-if="!isPolished" @click="kurumsalDileCevir" class="px-2.5 py-1 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition">
+            Dili Düzenle
+          </button>
+          <button v-else @click="geriAlDil" class="px-2.5 py-1 bg-slate-600 text-white rounded-lg font-medium hover:bg-slate-700 transition">
+            <i class="fa-solid fa-rotate-left"></i> Orijinale Dön
+          </button>
+        </div>
+      </div>
+
+      <!-- Yorum ve Öneriler -->
+      <div class="space-y-1">
+        <div class="flex justify-between items-center">
+          <label class="text-xs font-bold text-slate-600 uppercase">Öğretmenin Yorumu ve Önerisi</label>
+          <button @click="startVoiceRecognition('yorum')" 
+                  :class="isListeningYorum ? 'bg-red-500 text-white pulse-animation' : 'bg-slate-100 text-slate-600 border border-slate-300'"
+                  class="px-2 py-1 rounded-md text-xs flex items-center gap-1 transition">
+            <i class="fa-solid fa-microphone"></i>
+            <span>{{ isListeningYorum ? 'Dinleniyor...' : 'Sesle Not Al' }}</span>
+          </button>
+        </div>
+        <textarea v-model="currentAnekdot.yorum" rows="2" placeholder="Örn: Sıra bekleme ve problem çözme becerilerinin desteklenmesi önerilir." 
+                  class="w-full text-xs p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed"></textarea>
+      </div>
+
+      <!-- Kaydet Butonu -->
+      <button @click="saveAnekdot" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+        <i class="fa-solid fa-floppy-disk"></i> Anekdotu Sisteme Kaydet
+      </button>
+    </section>
+
+    <!-- SEKME 2: ANEKDOT KAYITLARI LİSTESİ -->
+    <section v-if="activeTab === 'list'" class="space-y-3">
+      <div class="flex gap-2">
+        <select v-model="filterStudentId" class="flex-1 text-xs p-2 rounded-lg border border-slate-300 bg-white">
+          <option value="">Tüm Öğrencilerin Kayıtları</option>
+          <option v-for="s in students" :key="s.id" :value="s.id">{{ s.adSoyad }}</option>
+        </select>
+        <button @click="activeTab = 'report'" class="px-3 bg-red-600 text-white text-xs font-semibold rounded-lg flex items-center gap-1">
+          <i class="fa-solid fa-file-pdf"></i> Ek-2 Yazdır
+        </button>
+      </div>
+
+      <div v-if="filteredAnekdotlar.length === 0" class="text-center py-12 text-slate-400 text-xs">
+        <i class="fa-regular fa-folder-open text-4xl mb-2"></i>
+        <p>Kayıtlı anekdot bulunmamaktadır.</p>
+      </div>
+
+      <div v-for="a in filteredAnekdotlar" :key="a.id" class="p-3 bg-white rounded-xl border border-slate-200 shadow-sm space-y-2">
+        <div class="flex justify-between items-center text-xs">
+          <span class="font-bold text-blue-700">{{ getStudentName(a.studentId) }}</span>
+          <span class="text-slate-400 text-[10px]">{{ a.tarih }} - {{ a.saat }}</span>
+        </div>
+        <div class="flex gap-1.5 text-[10px]">
+          <span class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-medium">{{ a.mekan }}</span>
+          <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">{{ a.gelisimAlani }}</span>
+        </div>
+        <p class="text-xs text-slate-700 bg-slate-50 p-2.5 rounded-lg leading-relaxed">
+          <strong>Gözlem:</strong> {{ a.durum }}
+        </p>
+        <p class="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg leading-relaxed">
+          <strong>Yorum / Öneri:</strong> {{ a.yorum }}
+        </p>
+        <div class="flex justify-between items-center pt-1 border-t border-slate-100 text-[10px] text-slate-400">
+          <span>Gözlemci: {{ a.gozlemci }}</span>
+          <button @click="deleteAnekdot(a.id)" class="text-red-500 text-xs px-2 py-1 hover:bg-red-50 rounded font-medium">
+            <i class="fa-solid fa-trash"></i> Sil
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEKME 3: ÖĞRENCİ YÖNETİMİ & DENGE TAKİBİ -->
+    <section v-if="activeTab === 'students'" class="space-y-4">
+      
+      <!-- Gözlem Denge Takipçisi (Heatmap) -->
+      <div class="bg-blue-50 p-3 rounded-xl border border-blue-200">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-xs font-bold text-blue-900">Gözlem Denge Takipçisi</h3>
+          <span class="text-[10px] bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-bold">{{ students.length }} Öğrenci</span>
+        </div>
+        <p class="text-[11px] text-blue-700 leading-tight mb-2.5">Tüm öğrencilere eşit ve dengeli gözlem kaydı tutulması MEB teftiş standardıdır.</p>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="p-2 bg-white rounded-lg border border-blue-100 flex items-center justify-between">
+            <span class="text-emerald-700 font-medium">Gözlenen Çocuk:</span>
+            <span class="font-bold text-emerald-600">{{ studentsWithObservationsCount }}</span>
+          </div>
+          <div class="p-2 bg-white rounded-lg border border-blue-100 flex items-center justify-between">
+            <span class="text-red-600 font-medium">Gözlem Yok (0):</span>
+            <span class="font-bold text-red-600">{{ studentsWithoutObservationsCount }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Yeni Öğrenci Ekleme & Toplu e-Okul Aktarımı -->
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <h3 class="text-xs font-bold text-slate-700 uppercase">Yeni Öğrenci Ekle</h3>
+        <div class="grid grid-cols-2 gap-2">
+          <input v-model="newStudent.adSoyad" placeholder="Ad Soyad" class="text-xs p-2 rounded-lg border border-slate-300">
+          <input type="date" v-model="newStudent.dogumTarihi" class="text-xs p-2 rounded-lg border border-slate-300">
+        </div>
+        <button @click="addStudent" class="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition">
+          Öğrenciyi Kaydet
+        </button>
+
+        <div class="pt-2 border-t border-slate-100">
+          <button @click="showBulkImport = !showBulkImport" class="text-xs text-blue-600 font-medium flex items-center gap-1">
+            <i class="fa-solid fa-file-import"></i> Toplu Sınıf Listesi Yapıştır (e-Okul / Excel)
+          </button>
+          <div v-if="showBulkImport" class="mt-2 space-y-2">
+            <textarea v-model="bulkNames" rows="3" placeholder="Her satıra bir isim gelecek şekilde sınıf listenizi yapıştırın..." 
+                      class="w-full text-xs p-2 border border-slate-300 rounded-lg"></textarea>
+            <button @click="importBulkStudents" class="w-full py-1.5 bg-emerald-600 text-white text-xs rounded-lg font-bold hover:bg-emerald-700 transition">
+              Tüm Listeyi Sınıfa Ekle
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Kayıtlı Öğrenci Kartları -->
+      <div class="space-y-2">
+        <div v-for="s in students" :key="s.id" class="p-3 bg-white rounded-xl border border-slate-200 flex justify-between items-center">
+          <div>
+            <div class="text-xs font-bold text-slate-800">{{ s.adSoyad }}</div>
+            <div class="text-[10px] text-slate-400">
+              {{ calculateMonths(s.dogumTarihi) }} Aylık | 
+              <span :class="getStudentAnekdotCount(s.id) === 0 ? 'text-red-500 font-bold' : 'text-emerald-600 font-bold'">
+                {{ getStudentAnekdotCount(s.id) }} Gözlem Kaydı
+              </span>
+            </div>
+          </div>
+          <button @click="deleteStudent(s.id)" class="text-slate-400 hover:text-red-600 p-2 text-xs">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEKME 4: RESMİ MEB EK-2 PDF RAPOR MODÜLÜ -->
+    <section v-if="activeTab === 'report'" class="space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <i class="fa-solid fa-file-pdf text-red-600"></i> MEB Ek-2 Anekdot Raporu Oluştur
+        </h2>
+        
+        <div>
+          <label class="text-xs font-semibold text-slate-600 block mb-1">Rapor Alınacak Öğrenci</label>
+          <select v-model="pdfSelectedStudentId" class="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white">
+            <option value="">Öğrenci Seçin</option>
+            <option v-for="s in students" :key="s.id" :value="s.id">{{ s.adSoyad }}</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[10px] text-slate-500 block mb-1">Başlangıç Tarihi</label>
+            <input type="date" v-model="pdfStartDate" class="w-full text-xs p-2 rounded-lg border border-slate-300">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 block mb-1">Bitiş Tarihi</label>
+            <input type="date" v-model="pdfEndDate" class="w-full text-xs p-2 rounded-lg border border-slate-300">
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold text-slate-600 block mb-1">Gözlemci Öğretmen Adı</label>
+          <input type="text" v-model="teacherName" placeholder="Ad Soyad" class="w-full text-xs p-2 rounded-lg border border-slate-300">
+        </div>
+
+        <button @click="generateMEBPdf" class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-xs">
+          <i class="fa-solid fa-file-arrow-down"></i> Resmî Ek-2 PDF Çıktısı Al
+        </button>
+      </div>
+    </section>
+
+    <!-- SEKME 5: AYARLAR VE TARAYICIDAN BAĞIMSIZ YEDEKLEME -->
+    <section v-if="activeTab === 'settings'" class="space-y-4">
+      
+      <!-- Kalıcı Bellek Koruması -->
+      <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+        <h3 class="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
+          <i class="fa-solid fa-hard-drive text-blue-600"></i> Kalıcı Bellek Koruması
+        </h3>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          Telefon hafızası dolduğunda tarayıcının verilerinizi otomatik temizlemesini engeller.
+        </p>
+        <button @click="requestPersistence" class="w-full py-2 bg-slate-800 text-white rounded-lg text-xs font-bold">
+          {{ isPersisted ? '✓ Kalıcı Koruma Aktif' : 'Bellek Korumasını Aktif Et' }}
+        </button>
+      </div>
+
+      <!-- Tarayıcıdan Tamamen Bağımsız Yedekleme & Kurtarma -->
+      <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-3">
+        <h3 class="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
+          <i class="fa-solid fa-shield-halved text-emerald-600"></i> Dışa Aktar & Kurtar
+        </h3>
+        <p class="text-[11px] text-slate-500 leading-tight">
+          Telefonu değiştirseniz veya tarayıcı geçmişini silseniz dahi bu yedek ile tüm öğrenci ve gözlem kayıtlarınızı kurtarabilirsiniz.
+        </p>
+
+        <button @click="downloadBackupFile" class="w-full py-2.5 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2">
+          <i class="fa-solid fa-download"></i> Cihaza Yedek Dosyası İndir (.json)
+        </button>
+
+        <button @click="shareBackup" class="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2">
+          <i class="fa-solid fa-share-nodes"></i> WhatsApp / Google Drive'a Gönder
+        </button>
+
+        <label class="w-full py-2.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center justify-center gap-2 cursor-pointer">
+          <i class="fa-solid fa-upload"></i> Yedek Dosyasından Geri Yükle
+          <input type="file" @change="restoreBackupFile" accept=".json" class="hidden">
+        </label>
+      </div>
+
+      <!-- PIN Kodu Güvenliği -->
+      <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+        <h3 class="text-xs font-bold text-slate-700 uppercase">Uygulama Kilit PIN Kodu</h3>
+        <input type="password" maxlength="4" v-model="appPin" placeholder="4 Haneli PIN" 
+               class="w-full text-xs p-2 border border-slate-300 rounded-lg tracking-widest text-center">
+        <button @click="savePin" class="w-full py-2 bg-slate-700 text-white rounded-lg text-xs font-bold">
+          PIN Kodunu Güncelle
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ALT SABİT NAVİGASYON (NAVBAR) -->
+  <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-200 flex justify-around py-2 z-30 shadow-lg">
+    <button @click="activeTab = 'new'" :class="activeTab === 'new' ? 'text-blue-600' : 'text-slate-400'" class="flex flex-col items-center">
+      <i class="fa-solid fa-circle-plus text-lg"></i>
+      <span class="text-[10px] mt-0.5 font-medium">Yeni Kayıt</span>
+    </button>
+    <button @click="activeTab = 'list'" :class="activeTab === 'list' ? 'text-blue-600' : 'text-slate-400'" class="flex flex-col items-center">
+      <i class="fa-solid fa-list-check text-lg"></i>
+      <span class="text-[10px] mt-0.5 font-medium">Kayıtlar</span>
+    </button>
+    <button @click="activeTab = 'students'" :class="activeTab === 'students' ? 'text-blue-600' : 'text-slate-400'" class="flex flex-col items-center">
+      <i class="fa-solid fa-users text-lg"></i>
+      <span class="text-[10px] mt-0.5 font-medium">Öğrenciler</span>
+    </button>
+    <button @click="activeTab = 'report'" :class="activeTab === 'report' ? 'text-blue-600' : 'text-slate-400'" class="flex flex-col items-center">
+      <i class="fa-solid fa-file-lines text-lg"></i>
+      <span class="text-[10px] mt-0.5 font-medium">Ek-2 PDF</span>
+    </button>
+  </nav>
+
+</div>
+
+<script>
+// 1. DEXIE VERİTABANI MODELİ
+const db = new Dexie('AnekdotEk2MaarifModeliDB');
+db.version(1).stores({
+  students: '++id, adSoyad, dogumTarihi',
+  anecdotes: '++id, studentId, tarih, saat, mekan, gelisimAlani, durum, yorum, durumHam, yorumHam, isPolished, gozlemci'
+});
+
+const { createApp, ref, computed, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const activeTab = ref('new');
+    const students = ref([]);
+    const anecdotes = ref([]);
+    const selectedStudentIds = ref([]);
+
+    // PIN ve Güvenlik Durumu
+    const pinLocked = ref(false);
+    const appPin = ref(localStorage.getItem('appPin') || '1234');
+    const enteredPin = ref('');
+
+    // Form Modeli
+    const currentAnekdot = ref({
+      mekan: 'Blok Merkezi',
+      gelisimAlani: 'Sosyal-Duygusal',
+      durum: '',
+      yorum: '',
+      durumHam: '',
+      yorumHam: ''
+    });
+
+    const isPolished = ref(false);
+    const isListeningOlay = ref(false);
+    const isListeningYorum = ref(false);
+    const teacherName = ref(localStorage.getItem('teacherName') || 'Okul Öncesi Öğretmeni');
+
+    // Hızlı Seçim Çipleri
+    const mekanlar = ['Blok Merkezi', 'Kitap Merkezi', 'Sanat Merkezi', 'Dramatik Oyun', 'Fen/Matematik', 'Bahçe / Açık Hava', 'Yemekhane', 'Geçiş Zamanı'];
+    const gelisimAlanlari = ['Sosyal-Duygusal', 'Bilişsel Gelişim', 'Dil Gelişimi', 'Büyük Motor', 'Küçük Motor', 'Öz Bakım Becerileri'];
+
+    // Öğrenci Yönetimi
+    const newStudent = ref({ adSoyad: '', dogumTarihi: '' });
+    const bulkNames = ref('');
+    const showBulkImport = ref(false);
+    const filterStudentId = ref('');
+
+    // Raporlama Filtreleri
+    const pdfSelectedStudentId = ref('');
+    const pdfStartDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+    const pdfEndDate = ref(new Date().toISOString().split('T')[0]);
+
+    // Kalıcı Hafıza
+    const isPersisted = ref(false);
+
+    // Başlangıç Yüklemesi
+    const loadData = async () => {
+      students.value = await db.students.toArray();
+      anecdotes.value = await db.anecdotes.reverse().toArray();
+      if (navigator.storage && navigator.storage.persisted) {
+        isPersisted.value = await navigator.storage.persisted();
+      }
+      if (localStorage.getItem('appPinLocked') === 'true') {
+        pinLocked.value = true;
+      }
+    };
+
+    onMounted(loadData);
+
+    // PIN Kontrolü
+    const unlockApp = () => {
+      if (enteredPin.value === appPin.value) {
+        pinLocked.value = false;
+        enteredPin.value = '';
+      } else {
+        alert('Hatalı PIN Kodu!');
+        enteredPin.value = '';
+      }
+    };
+
+    const savePin = () => {
+      if (appPin.value.length === 4) {
+        localStorage.setItem('appPin', appPin.value);
+        localStorage.setItem('appPinLocked', 'true');
+        alert('PIN kodu başarıyla kaydedildi.');
+      } else {
+        alert('PIN kodu 4 haneli olmalıdır.');
+      }
+    };
+
+    // MEB Ay Hesabı (Zorunlu)
+    const calculateMonths = (birthDateString) => {
+      if (!birthDateString) return 0;
+      const birth = new Date(birthDateString);
+      const now = new Date();
+      let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth());
+      return months > 0 ? months : 0;
+    };
+
+    // Çoklu Öğrenci Seçimi
+    const toggleStudentSelection = (id) => {
+      const idx = selectedStudentIds.value.indexOf(id);
+      if (idx > -1) selectedStudentIds.value.splice(idx, 1);
+      else selectedStudentIds.value.push(id);
+    };
+
+    // Web Speech API ile Sesli Dikte
+    const startVoiceRecognition = (targetField) => {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert('Cihazınız Web Ses Tanımayı desteklemiyor. Chrome veya Safari ile deneyin.');
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'tr-TR';
+      recognition.interimResults = false;
+
+      if (targetField === 'olay') isListeningOlay.value = true;
+      if (targetField === 'yorum') isListeningYorum.value = true;
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (targetField === 'olay') currentAnekdot.value.durum += (currentAnekdot.value.durum ? ' ' : '') + transcript;
+        if (targetField === 'yorum') currentAnekdot.value.yorum += (currentAnekdot.value.yorum ? ' ' : '') + transcript;
+      };
+
+      recognition.onend = () => {
+        isListeningOlay.value = false;
+        isListeningYorum.value = false;
+      };
+
+      recognition.onerror = () => {
+        isListeningOlay.value = false;
+        isListeningYorum.value = false;
+      };
+
+      recognition.start();
+    };
+
+    // MEB Pedagojik Dil Düzenleyici & Geri Alma
+    const kurumsalDileCevir = () => {
+      if (!currentAnekdot.value.durum) {
+        alert('Lütfen önce gözlemlenen olayı yazın.');
+        return;
+      }
+      currentAnekdot.value.durumHam = currentAnekdot.value.durum;
+      currentAnekdot.value.yorumHam = currentAnekdot.value.yorum;
+
+      // Nesnel ve Pedagojik Dil Dönüştürme Kuralları
+      let metin = currentAnekdot.value.durum
+        .replace(/yaramazlık yaptı/gi, 'sınıf içi yönergelere uyum sağlamakta zorlandı')
+        .replace(/kavga etti/gi, 'akranıyla yaşadığı problemde sözel/fiziksel çatışmaya girdi')
+        .replace(/ağladı/gi, 'duygusal durumunu ağlayarak ifade etti')
+        .replace(/vurdu/gi, 'akranına yönelik fiziksel temasta bulundu')
+        .replace(/akıllıca davrandı/gi, 'beklenen sosyal problem çözme becerisini sergiledi')
+        .replace(/dinlemedi/gi, 'dikkatini etkinliğe yoğunlaştırmakta desteğe ihtiyaç duydu');
+
+      currentAnekdot.value.durum = metin;
+      if (!currentAnekdot.value.yorum) {
+        currentAnekdot.value.yorum = `${currentAnekdot.value.gelisimAlani} alanında öz düzenleme ve akran iletişim becerilerinin desteklenmesi önerilir.`;
+      }
+      isPolished.value = true;
+    };
+
+    const geriAlDil = () => {
+      currentAnekdot.value.durum = currentAnekdot.value.durumHam;
+      currentAnekdot.value.yorum = currentAnekdot.value.yorumHam;
+      isPolished.value = false;
+    };
+
+    // Anekdot Kaydet (Çoklu Öğrenci Dağıtımı)
+    const saveAnekdot = async () => {
+      if (selectedStudentIds.value.length === 0) {
+        alert('Lütfen en az bir öğrenci seçin!');
+        return;
+      }
+      if (!currentAnekdot.value.durum) {
+        alert('Lütfen olay alanını boş bırakmayın!');
+        return;
+      }
+
+      const now = new Date();
+      const tarih = now.toLocaleDateString('tr-TR');
+      const saat = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+
+      for (const studentId of selectedStudentIds.value) {
+        await db.anecdotes.add({
+          studentId: studentId,
+          tarih: tarih,
+          saat: saat,
+          mekan: currentAnekdot.value.mekan,
+          gelisimAlani: currentAnekdot.value.gelisimAlani,
+          durum: currentAnekdot.value.durum,
+          yorum: currentAnekdot.value.yorum,
+          durumHam: currentAnekdot.value.durumHam || currentAnekdot.value.durum,
+          yorumHam: currentAnekdot.value.yorumHam || currentAnekdot.value.yorum,
+          isPolished: isPolished.value,
+          gozlemci: teacherName.value
+        });
+      }
+
+      localStorage.setItem('teacherName', teacherName.value);
+      alert('Anekdot başarıyla kaydedildi.');
+      currentAnekdot.value.durum = '';
+      currentAnekdot.value.yorum = '';
+      selectedStudentIds.value = [];
+      isPolished.value = false;
+      await loadData();
+      activeTab.value = 'list';
+    };
+
+    // Öğrenci CRUD
+    const addStudent = async () => {
+      if (!newStudent.value.adSoyad || !newStudent.value.dogumTarihi) {
+        alert('İsim ve doğum tarihi girilmelidir.');
+        return;
+      }
+      await db.students.add({
+        adSoyad: newStudent.value.adSoyad,
+        dogumTarihi: newStudent.value.dogumTarihi
+      });
+      newStudent.value = { adSoyad: '', dogumTarihi: '' };
+      await loadData();
+    };
+
+    const importBulkStudents = async () => {
+      const lines = bulkNames.value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const defaultDate = new Date(new Date().getFullYear() - 5, 0, 1).toISOString().split('T')[0];
+      for (const name of lines) {
+        await db.students.add({ adSoyad: name, dogumTarihi: defaultDate });
+      }
+      bulkNames.value = '';
+      showBulkImport.value = false;
+      await loadData();
+      alert(`${lines.length} öğrenci sınıfa eklendi.`);
+    };
+
+    const deleteStudent = async (id) => {
+      if (confirm('Bu öğrenciyi ve tüm kayıtlarını silmek istediğinize emin misiniz?')) {
+        await db.students.delete(id);
+        await db.anecdotes.where('studentId').equals(id).delete();
+        await loadData();
+      }
+    };
+
+    const deleteAnekdot = async (id) => {
+      if (confirm('Bu anekdot kaydını silmek istediğinize emin misiniz?')) {
+        await db.anecdotes.delete(id);
+        await loadData();
+      }
+    };
+
+    // Denge Takipçisi & İstatistikler
+    const getStudentName = (id) => {
+      const s = students.value.find(st => st.id === id);
+      return s ? s.adSoyad : 'Bilinmeyen Öğrenci';
+    };
+
+    const getStudentAnekdotCount = (id) => anecdotes.value.filter(a => a.studentId === id).length;
+    const studentsWithObservationsCount = computed(() => students.value.filter(s => getStudentAnekdotCount(s.id) > 0).length);
+    const studentsWithoutObservationsCount = computed(() => students.value.filter(s => getStudentAnekdotCount(s.id) === 0).length);
+
+    const filteredAnekdotlar = computed(() => {
+      if (!filterStudentId.value) return anecdotes.value;
+      return anecdotes.value.filter(a => a.studentId === Number(filterStudentId.value));
+    });
+
+    // Kalıcı Depolama İzni Alma
+    const requestPersistence = async () => {
+      if (navigator.storage && navigator.storage.persist) {
+        const granted = await navigator.storage.persist();
+        isPersisted.value = granted;
+        alert(granted ? 'Kalıcı depolama koruması aktif edildi.' : 'Depolama koruması tarayıcı tarafından reddedildi.');
+      }
+    };
+
+    // Cihaza JSON Yedek İndirme
+    const downloadBackupFile = async () => {
+      const data = {
+        students: await db.students.toArray(),
+        anecdotes: await db.anecdotes.toArray(),
+        backupDate: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Anekdot_Ek2_Yedek_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // Web Share API (WhatsApp / Drive Yedekleme)
+    const shareBackup = async () => {
+      const data = {
+        students: await db.students.toArray(),
+        anecdotes: await db.anecdotes.toArray(),
+        backupDate: new Date().toISOString()
+      };
+      const file = new File([JSON.stringify(data)], 'Anekdot_Ek2_Yedek.json', { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            title: 'Anekdot Yedek Dosyası',
+            text: 'MEB Ek-2 Anekdot Yedekleme Dosyası',
+            files: [file]
+          });
+        } catch (e) {
+          downloadBackupFile();
+        }
+      } else {
+        downloadBackupFile();
+      }
+    };
+
+    // Yedekten Geri Yükleme
+    const restoreBackupFile = (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (imported.students && imported.anecdotes) {
+            await db.students.clear();
+            await db.anecdotes.clear();
+            await db.students.bulkAdd(imported.students);
+            await db.anecdotes.bulkAdd(imported.anecdotes);
+            await loadData();
+            alert('Tüm veriler başarıyla geri yüklendi!');
+          } else {
+            alert('Geçersiz yedek dosyası yapısı.');
+          }
+        } catch (err) {
+          alert('Dosya okunurken bir hata oluştu.');
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    // RESMÎ MEB EK-2 PDF MOTORU
+    const generateMEBPdf = () => {
+      if (!pdfSelectedStudentId.value) {
+        alert('Lütfen bir öğrenci seçin!');
+        return;
+      }
+      const st = students.value.find(s => s.id === Number(pdfSelectedStudentId.value));
+      const list = anecdotes.value.filter(a => a.studentId === st.id);
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF('p', 'mm', 'a4');
+
+      // Başlıklar
+      doc.setFontSize(11);
+      doc.text("T.C. MILLI EGITIM BAKANLIGI", 105, 15, { align: "center" });
+      doc.setFontSize(12);
+      doc.text("OKUL ONCESI EGITIM PROGRAMI EK-2 ANEKDOT KAYIT FORMU", 105, 22, { align: "center" });
+
+      // Öğrenci Bilgileri
+      doc.setFontSize(9);
+      doc.text(`Cocugun Adi Soyadi : ${st.adSoyad}`, 14, 32);
+      doc.text(`Gozlem Tarih Araligi : ${pdfStartDate.value} - ${pdfEndDate.value}`, 135, 32);
+      doc.text(`Yasi (Ay Olarak)   : ${calculateMonths(st.dogumTarihi)} Aylik`, 14, 38);
+      doc.text(`Gozlemci Ogretmen   : ${teacherName.value}`, 135, 38);
+
+      // Tablo Satırları
+      const rows = list.map(a => [
+        `${a.tarih}\n${a.saat}`,
+        `${a.mekan}\n(${a.gelisimAlani})`,
+        a.durum,
+        a.yorum,
+        a.gozlemci
+      ]);
+
+      doc.autoTable({
+        startY: 44,
+        head: [['Tarih / Saat', 'Ortam / Gelisim Alani', 'Gozlenen Davranis (Betimleme)', 'Yorum ve Oneriler', 'Gozlemci']],
+        body: rows,
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2.5, valign: 'top' },
+        headStyles: { fillColor: [51, 65, 85], textColor: 255, halign: 'center' },
+        columnStyles: {
+          0: { cellWidth: 24 },
+          1: { cellWidth: 32 },
+          2: { cellWidth: 60 },
+          3: { cellWidth: 50 },
+          4: { cellWidth: 24 }
+        }
+      });
+
+      doc.save(`${st.adSoyad}_MEB_Ek2_Anekdot_Raporu.pdf`);
+    };
+
+    return {
+      activeTab, students, anecdotes, selectedStudentIds, currentAnekdot, isPolished,
+      mekanlar, gelisimAlanlari, newStudent, bulkNames, showBulkImport, filterStudentId,
+      pdfSelectedStudentId, pdfStartDate, pdfEndDate, teacherName, isPersisted,
+      pinLocked, appPin, enteredPin, isListeningOlay, isListeningYorum,
+      unlockApp, savePin, toggleStudentSelection, startVoiceRecognition,
+      kurumsalDileCevir, geriAlDil, saveAnekdot, addStudent, importBulkStudents,
+      deleteStudent, deleteAnekdot, calculateMonths, getStudentName, getStudentAnekdotCount,
+      studentsWithObservationsCount, studentsWithoutObservationsCount, filteredAnekdotlar,
+      requestPersistence, downloadBackupFile, shareBackup, restoreBackupFile, generateMEBPdf
+    };
+  }
+}).mount('#app');
+</script>
+
+</body>
+</html>
